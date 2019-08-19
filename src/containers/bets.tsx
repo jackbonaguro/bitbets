@@ -62,6 +62,8 @@ export interface Bet {
   index: number;
   userChoice: number;
   choiceCounts: number[];
+  invalid: boolean;
+  betsPlaced: number;
 }
 interface IState {
   network: keyof typeof BetContractAddress;
@@ -70,6 +72,7 @@ interface IState {
   betOption: string;
   user: string;
   canWithdraw: { [betIndex: string]: boolean };
+  canRecover: { [betIndex: string]: boolean };
 }
 
 interface IProps
@@ -109,7 +112,8 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
     },
     betOption: "",
     user: "",
-    canWithdraw: {}
+    canWithdraw: {},
+    canRecover: {}
   };
 
   async componentDidMount() {
@@ -150,6 +154,7 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
     const contract = this.getBetsContract();
     const bets = [];
     const canWithdraw = {} as IState["canWithdraw"];
+    const canRecover = {} as IState["canRecover"];
     let index = 0;
     try {
       let betItr = await contract.methods.bets(index).call();
@@ -158,6 +163,12 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
           canWithdraw[index.toString()] = await this.canWithdraw(
             index,
             betItr.outcome
+          );
+        }
+        if (betItr.invalid) {
+          canRecover[index.toString()] = await this.canRecover(
+            index,
+            betItr.invalid
           );
         }
 
@@ -195,6 +206,16 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
       .call();
     return isDone && choice === outcome && !withdrawn;
   }
+  async canRecover(betIndex: number, invalid: boolean) {
+      const user = this.state.user;
+      const contract = this.getBetsContract();
+      const recovered = await contract.methods
+          .userRecovered(betIndex, user)
+          .call();
+      console.log(`${betIndex} invalid: ${invalid}`);
+      console.log(`${betIndex} recovered: ${recovered}`);
+      return invalid && !recovered;
+  }
 
   betsComponent(filter: boolean) {
     const bets = this.state.bets
@@ -202,14 +223,17 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
       .filter(b => {
         return (
           !filter ||
-          (b.outcome.toString() === "0" || this.state.canWithdraw[b.index])
+          ((b.outcome.toString() === "0" || this.state.canWithdraw[b.index]) ||
+          (!(b.invalid) || this.state.canRecover[b.index]))
         );
       })
       .map(bet => {
         const token = getTokenForAddress(bet.paymentToken);
         const isOpen = bet.outcome.toString() === "0";
+        const isValid = !(bet.invalid);
+        //console.log(`invalid: ${bet.invalid}`);
         return (
-          <Paper style={styles.card}>
+          <Paper style={styles.card} key={bet.index}>
             <div>
               <h4>I bet that...</h4>
               <Link to={"/" + bet.index}>{bet.terms}</Link>
@@ -222,7 +246,7 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
               <h4>Pool Balance: </h4>
               {bet.totalPool / Math.pow(10, token!.decimals)} {token!.name}
             </div>
-            {isOpen ? (
+            {isOpen && isValid ? (
               <div>
                 <Divider />
                 {bet.userChoice.toString() === "0" ? (
@@ -248,10 +272,19 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
                 )}
               </div>
             ) : (
-              <div>
-                <h4>Bet Outcome</h4>
-                {bet.options[bet.outcome - 1]}
-              </div>
+                <>
+              {isValid ? (
+                <div>
+                  <h4>Bet Outcome</h4>
+                  {bet.options[bet.outcome - 1]}
+                </div>
+              ) : (
+                <div>
+                  <h4>Bet Outcome</h4>
+                  {"Invalid"}
+                </div>
+              )}
+              </>
             )}
             {this.state.canWithdraw[bet.index.toString()] ? (
               <div>
@@ -261,10 +294,24 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
                 </Button>
               </div>
             ) : null}
-            {isOpen && this.state.user === bet.oracle ? (
+            {this.state.canRecover[bet.index.toString()] ? (
+                <div>
+                    <h4> Invalid Bet </h4>
+                    <Button onClick={() => this.recoverBet(bet.index)}>
+                        Recover
+                    </Button>
+                </div>
+            ) : null}
+            {isOpen && isValid && this.state.user === bet.oracle ? (
               <div>
                 <Divider />
                 <h5>Oracle</h5>
+                <Button
+                  onClick={() => this.invalidateBet(bet.index)}
+                >
+                  {"Invalidate"}
+                </Button>
+                <hr/>
                 {bet.options.map((option, optionIndex) => (
                   <Button
                     onClick={() => this.resolveBet(bet.index, optionIndex + 1)}
@@ -373,12 +420,30 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
     this.populateBetsState();
   }
 
+  async invalidateBet(betIndex: number) {
+      const [from] = await this.web3.eth.getAccounts();
+      const bet = this.state.bets.find(b => b.index === betIndex)!;
+      const value = bet.amount;
+      await this.getBetsContract()
+          .methods.invalidateBet(betIndex)
+          .send({ from });
+      this.populateBetsState();
+  }
+
   async redeemBet(betIndex: number) {
     const [from] = await this.web3.eth.getAccounts();
     await this.getBetsContract()
       .methods.withdraw(betIndex)
       .send({ from });
     this.populateBetsState();
+  }
+
+  async recoverBet(betIndex: number) {
+      const [from] = await this.web3.eth.getAccounts();
+      await this.getBetsContract()
+          .methods.recover(betIndex)
+          .send({ from });
+      this.populateBetsState();
   }
 
   createBetsComponent() {

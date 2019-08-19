@@ -9,6 +9,7 @@ interface IState {
   betOption: string;
   user: string;
   canWithdraw: { [betIndex: string]: boolean };
+  canRecover: { [betIndex: string]: boolean };
 }
 
 export class BetContainer extends BitBetsContainer {
@@ -16,6 +17,7 @@ export class BetContainer extends BitBetsContainer {
     const contract = this.getBetsContract();
     const bets = [];
     const canWithdraw = {} as IState["canWithdraw"];
+    const canRecover = {} as IState["canRecover"];
     let index = Number(this.props.match.params.bet || "0");
     try {
       let bet = await contract.methods.bets(index).call();
@@ -23,6 +25,12 @@ export class BetContainer extends BitBetsContainer {
         canWithdraw[index.toString()] = await this.canWithdraw(
           index,
           bet.outcome
+        );
+      }
+      if (bet.invalid) {
+        canRecover[index.toString()] = await this.canRecover(
+          index,
+          bet.invalid
         );
       }
       const choice = await contract.methods
