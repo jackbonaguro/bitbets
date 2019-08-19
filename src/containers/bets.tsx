@@ -165,13 +165,13 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
             betItr.outcome
           );
         }
-        if (betItr.invalid) {
+        if (typeof (betItr.invalid) !== "undefined") {
           canRecover[index.toString()] = await this.canRecover(
             index,
-            betItr.invalid
+            betItr.invalid,
+            betItr.betsPlaced
           );
         }
-
         const choice = await contract.methods
           .userBets(index, this.state.user)
           .call();
@@ -193,7 +193,7 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
       console.log(e);
     }
 
-    this.setState({ bets, canWithdraw });
+    this.setState({ bets, canWithdraw, canRecover });
   }
 
   async canWithdraw(betIndex: number, outcome: number) {
@@ -206,15 +206,13 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
       .call();
     return isDone && choice === outcome && !withdrawn;
   }
-  async canRecover(betIndex: number, invalid: boolean) {
+  async canRecover(betIndex: number, invalid: boolean, betsPlaced: number) {
       const user = this.state.user;
       const contract = this.getBetsContract();
       const recovered = await contract.methods
           .userRecovered(betIndex, user)
           .call();
-      console.log(`${betIndex} invalid: ${invalid}`);
-      console.log(`${betIndex} recovered: ${recovered}`);
-      return invalid && !recovered;
+      return invalid && !recovered && (betsPlaced > 0);
   }
 
   betsComponent(filter: boolean) {
@@ -223,7 +221,7 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
       .filter(b => {
         return (
           !filter ||
-          ((b.outcome.toString() === "0" || this.state.canWithdraw[b.index]) ||
+          ((b.outcome.toString() === "0" || this.state.canWithdraw[b.index]) &&
           (!(b.invalid) || this.state.canRecover[b.index]))
         );
       })
@@ -296,7 +294,7 @@ export class BitBetsContainer extends React.Component<IProps, IState> {
             ) : null}
             {this.state.canRecover[bet.index.toString()] ? (
                 <div>
-                    <h4> Invalid Bet </h4>
+                    <h4> Recovery </h4>
                     <Button onClick={() => this.recoverBet(bet.index)}>
                         Recover
                     </Button>

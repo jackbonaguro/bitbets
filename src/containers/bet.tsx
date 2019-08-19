@@ -30,7 +30,8 @@ export class BetContainer extends BitBetsContainer {
       if (bet.invalid) {
         canRecover[index.toString()] = await this.canRecover(
           index,
-          bet.invalid
+          bet.invalid,
+          bet.betsPlaced
         );
       }
       const choice = await contract.methods
@@ -52,7 +53,7 @@ export class BetContainer extends BitBetsContainer {
       console.log(e);
     }
 
-    this.setState({ bets, canWithdraw });
+    this.setState({ bets, canWithdraw, canRecover });
   }
 
   render() {
